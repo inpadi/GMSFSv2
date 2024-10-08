@@ -2,6 +2,7 @@ package GMSFS
 
 import (
 	"fmt"
+	cmap "github.com/orcaman/concurrent-map/v2"
 	"io"
 	"os"
 	"path/filepath"
@@ -24,6 +25,8 @@ type FileInfo struct {
 }
 
 const timeFlat = "20060102_1504"
+
+var CachedFiles = cmap.New[[]byte]()
 
 // FileHandleInstance to store file and timer information
 type FileHandleInstance struct {
@@ -558,4 +561,24 @@ func ReadDir(dirName string) ([]FileInfo, error) {
 	}
 
 	return fileInfos, nil
+}
+
+func CacheReadFile(file string) (data []byte, err error) {
+	d, ok := CachedFiles.Get(file)
+	if ok == true {
+		return d, nil
+	}
+	d, err = ReadFile(file)
+	if err == nil {
+		CachedFiles.Set(file, d)
+	}
+	return d, err
+}
+
+func CacheWriteFile(file string, data []byte, perm os.FileMode) (err error) {
+	err = WriteFile(file, data, perm)
+	if err == nil {
+		CachedFiles.Set(file, data)
+	}
+	return err
 }
