@@ -1,4 +1,4 @@
-module GMSFSv2
+module github.com/inpadi/GMSFSv2
 
 go 1.23.0
 
