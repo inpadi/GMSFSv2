@@ -671,13 +671,15 @@ func CacheReadFile(file string) (data []byte, err error) {
 			if ok == true {
 				return d, nil
 			}
+		} else {
+			return nil, fmt.Errorf("File not found: %s", file)
 		}
 	}
 
 	d, err := ReadFile(file)
 	if err == nil {
-		CachedFileNames.Set(file, true)
 		CachedFiles.Set(file, d)
+		CachedFileNames.Set(file, true)
 	} else {
 		CachedFileNames.Set(file, false)
 	}
