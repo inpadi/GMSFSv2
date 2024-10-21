@@ -207,6 +207,11 @@ func ReadFile(name string) ([]byte, error) {
 
 // FileExists checks whether a file or directory with the specified name exists and returns true if it does, otherwise false.
 func FileExists(name string) bool {
+	c, ok := CachedFileNames.Get(strings.ToLower(name))
+	if ok == true {
+		return c
+	}
+
 	_, err := os.Stat(name)
 	if os.IsNotExist(err) {
 		return false
