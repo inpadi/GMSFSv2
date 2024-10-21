@@ -27,6 +27,7 @@ type FileInfo struct {
 const timeFlat = "20060102_1504"
 
 var CachedFiles = cmap.New[[]byte]()
+var CachedFileNames = cmap.New[bool]()
 
 // FileHandleInstance to store file and timer information
 type FileHandleInstance struct {
@@ -34,6 +35,9 @@ type FileHandleInstance struct {
 	Timer *time.Timer
 }
 
+// errorPrinter logs errors to a debug file if it exists, or to a log file with a timestamp and stack trace if not.
+// log - The error message to be logged.
+// object - The object associated with the error.
 func errorPrinter(log string, object string) {
 	if _, err := os.Stat("GMSFS.Debug"); err != nil {
 		if os.IsNotExist(err) {
@@ -54,6 +58,8 @@ func errorPrinter(log string, object string) {
 	AppendStringToFile("GMSFS."+time.Now().Format(timeFlat)+".log", log+" stacktrace: "+stack+"\r\n")
 }
 
+// cleanPath sanitizes a given path by cleaning up redundant separators and resolving symbolic links.
+// It removes any device information if present, returning the cleaned path.
 func cleanPath(path string) string {
 	path = filepath.Clean(path)
 	fs := strings.SplitN(path, ":", 2)
@@ -64,6 +70,8 @@ func cleanPath(path string) string {
 	return path
 }
 
+// OpenFile opens a file with the given name, flag, and permissions.
+// If an error occurs, it logs the error and returns nil along with the error.
 func OpenFile(name string, flag int, perm os.FileMode) (*os.File, error) {
 	file, err := os.OpenFile(name, flag, perm)
 	if err != nil {
@@ -73,6 +81,9 @@ func OpenFile(name string, flag int, perm os.FileMode) (*os.File, error) {
 	return file, nil
 }
 
+// Open opens the file with the specified name after cleaning the path.
+// name - The name of the file to be opened.
+// Returns a pointer to the opened file and an error if the file cannot be opened.
 func Open(name string) (*os.File, error) {
 	name = cleanPath(name)
 
@@ -86,6 +97,8 @@ func Open(name string) (*os.File, error) {
 	return file, nil
 }
 
+// Create creates a new file named by the provided name.
+// Returns a pointer to the created file and an error if something went wrong.
 func Create(name string) (*os.File, error) {
 	name = cleanPath(name)
 
@@ -95,9 +108,13 @@ func Create(name string) (*os.File, error) {
 		return nil, err
 	}
 
+	cacheClearElement(name)
+
 	return file, nil
 }
 
+// CopyDir recursively copies a directory from src to dst. It replicates the directory structure and file contents.
+// src must be a directory; if dst already exists, an error is returned. Symlinks within the directory are skipped.
 func CopyDir(src string, dst string) error {
 	src = cleanPath(src)
 	dst = cleanPath(dst)
@@ -154,9 +171,14 @@ func CopyDir(src string, dst string) error {
 		}
 	}
 
+	clearCacheForPath(dst)
+
 	return nil
 }
 
+// Delete removes the specified file from the filesystem.
+// name - The path of the file to be deleted.
+// Returns an error if the file cannot be removed.
 func Delete(name string) error {
 	// Remove the file from the filesystem
 	err := os.Remove(name) // Use original case for filesystem operations
@@ -165,9 +187,13 @@ func Delete(name string) error {
 		return err
 	}
 
+	cacheClearElement(name)
+
 	return nil
 }
 
+// ReadFile reads the content of the file specified by the given name and returns it as a byte slice.
+// It returns an error if the file does not exist or an error occurred during reading.
 func ReadFile(name string) ([]byte, error) {
 	// Read the file contents
 	content, err := os.ReadFile(name) // Use the original case for filesystem operations
@@ -179,6 +205,7 @@ func ReadFile(name string) ([]byte, error) {
 	return content, nil
 }
 
+// FileExists checks whether a file or directory with the specified name exists and returns true if it does, otherwise false.
 func FileExists(name string) bool {
 	_, err := os.Stat(name)
 	if os.IsNotExist(err) {
@@ -189,6 +216,10 @@ func FileExists(name string) bool {
 	return false
 }
 
+// Mkdir creates a new directory with the specified name and permissions.
+// name - The name of the directory to create.
+// perm - The permissions to use when creating the directory.
+// Returns an error if there is an issue creating the directory.
 func Mkdir(name string, perm os.FileMode) error {
 	name = cleanPath(name) // Preserve original name for file operation
 	err := os.Mkdir(name, perm)
@@ -197,9 +228,12 @@ func Mkdir(name string, perm os.FileMode) error {
 		return err
 	}
 
+	clearCacheForPath(name)
+
 	return nil
 }
 
+// MkdirAll creates a directory named path along with any necessary parents using the specified file permissions.
 func MkdirAll(path string, perm os.FileMode) error {
 	path = cleanPath(path) // Preserve original path for file operation
 
@@ -212,9 +246,16 @@ func MkdirAll(path string, perm os.FileMode) error {
 		return err
 	}
 
+	clearCacheForPath(path)
+
 	return nil
 }
 
+// Append appends the given byte content to the specified file.
+// If the file does not exist, it will be created with the specified content.
+// name - The path of the file to which the content will be appended.
+// content - The byte content to append to the file.
+// Returns an error if there is an issue opening, creating, or writing to the file.
 func Append(name string, content []byte) error {
 	var file *os.File
 	var err error
@@ -233,15 +274,25 @@ func Append(name string, content []byte) error {
 		return err
 	}
 
+	cacheClearElement(name)
+
 	return nil
 }
 
+// AppendStringToFile appends the given string content to the specified file.
+// If the file does not exist, it will be created with the specified content.
+// name - The path of the file to which the content will be appended.
+// content - The string content to append to the file.
+// Returns an error if there is an issue opening, creating, or writing to the file.
 func AppendStringToFile(name string, content string) error {
 	return Append(name, []byte(content))
 }
 
+// WriteFile writes data to the named file with specified permissions. It cleans the file path before writing.
 func WriteFile(name string, content []byte, perm os.FileMode) error {
 	name = cleanPath(name)
+
+	cacheClearElement(name)
 
 	// Write the new content to the file
 	err := os.WriteFile(name, content, perm)
@@ -253,6 +304,8 @@ func WriteFile(name string, content []byte, perm os.FileMode) error {
 	return nil
 }
 
+// FileSize returns the size of the file specified by the name parameter.
+// If the file does not exist or an error occurs, it returns 0 and the error.
 func FileSize(name string) (int64, error) {
 	// If not in cache, get file size from the filesystem
 	stat, err := os.Stat(name) // Original name for filesystem operation
@@ -264,6 +317,7 @@ func FileSize(name string) (int64, error) {
 	return stat.Size(), nil
 }
 
+// FileSizeZeroOnError returns the size of the file specified by `name`. If an error occurs, it returns 0.
 func FileSizeZeroOnError(name string) int64 {
 	// If not in cache, get file size from the filesystem
 	stat, err := os.Stat(name) // Original name for filesystem operation
@@ -274,10 +328,14 @@ func FileSizeZeroOnError(name string) int64 {
 	return stat.Size()
 }
 
+// Rename renames a file from oldName to newName. Returns an error if the renaming fails.
 func Rename(oldName, newName string) error {
 	if oldName == newName {
 		return nil
 	}
+
+	cacheClearElement(oldName)
+	cacheClearElement(newName)
 
 	err := os.Rename(oldName, newName)
 	if err != nil {
@@ -289,7 +347,10 @@ func Rename(oldName, newName string) error {
 	return nil
 }
 
+// CopyFile copies the contents of a file from src to dst. If dst does not exist, it is created with the same permissions as src.
 func CopyFile(src, dst string) (err error) {
+	cacheClearElement(dst)
+
 	src = cleanPath(src)
 	dst = cleanPath(dst)
 
@@ -337,7 +398,10 @@ func CopyFile(src, dst string) (err error) {
 	return
 }
 
+// Remove deletes the named file. If an error occurs, it logs the error and returns it.
 func Remove(name string) error {
+	cacheClearElement(name)
+
 	err := os.Remove(name)
 	if err != nil {
 		errorPrinter("Remove: "+err.Error(), name)
@@ -347,13 +411,18 @@ func Remove(name string) error {
 	return nil
 }
 
+// RemoveAll deletes the specified path and any children it contains, effectively emptying the directory if it exists.
 func RemoveAll(path string) error {
 	path = cleanPath(path)
 	oserr := os.RemoveAll(path)
 
+	clearCacheForPath(path)
+
 	return oserr
 }
 
+// ListFS traverses a directory at the specified path and returns a list of names of files and subdirectories.
+// Directories are prefixed with "*". Errors are logged, and an empty slice is returned on failure.
 func ListFS(path string) []string {
 	var sysSlices []string
 
@@ -383,6 +452,8 @@ func ListFS(path string) []string {
 	return sysSlices
 }
 
+// RecurseFS traverses the filesystem starting from the specified path, collecting paths of all files and directories.
+// Directories are prefixed with an asterisk (*). The function returns a slice containing all of the collected paths.
 func RecurseFS(path string) (sysSlices []string) {
 	//	temp, ok := FileCache.Get(lowerCasePath)
 	var files []FileInfo
@@ -422,6 +493,7 @@ func RecurseFS(path string) (sysSlices []string) {
 	return sysSlices
 }
 
+// FileAgeInSec returns the age of the file specified by filename in seconds or an error if the file doesn't exist or is inaccessible.
 func FileAgeInSec(filename string) (age time.Duration, err error) {
 	// If not in cache, get file info from the filesystem and update the cache
 	var stat FileInfo
@@ -434,6 +506,7 @@ func FileAgeInSec(filename string) (age time.Duration, err error) {
 	return time.Now().Sub(stat.LastModified), nil
 }
 
+// CopyDirFilesGlob copies files from the source directory to the destination directory matching the file pattern.
 func CopyDirFilesGlob(src string, dst string, fileMatch string) (err error) {
 	src = cleanPath(src)
 	dst = cleanPath(dst)
@@ -474,9 +547,12 @@ func CopyDirFilesGlob(src string, dst string, fileMatch string) (err error) {
 		}
 	}
 
+	clearCacheForPath(dst)
+
 	return nil
 }
 
+// FindFilesInDir searches for files in the specified directory that match the given pattern and returns their paths.
 func FindFilesInDir(dir string, pattern string) ([]string, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -495,6 +571,7 @@ func FindFilesInDir(dir string, pattern string) ([]string, error) {
 	return matches, nil
 }
 
+// Glob returns the names of all files matching the specified pattern, or an error if the pattern is invalid.
 func Glob(pattern string) ([]string, error) {
 	matches, err := filepath.Glob(pattern)
 	if err != nil {
@@ -504,6 +581,7 @@ func Glob(pattern string) ([]string, error) {
 	return matches, nil
 }
 
+// Stat retrieves the FileInfo for the specified file or directory name and returns it along with any error encountered.
 func Stat(name string) (FileInfo, error) {
 	stat, err := os.Stat(name)
 	if err != nil {
@@ -523,6 +601,7 @@ func Stat(name string) (FileInfo, error) {
 	return info, nil
 }
 
+// ReadDir reads the contents of a directory specified by dirName and returns a slice of FileInfo objects and an error.
 func ReadDir(dirName string) ([]FileInfo, error) {
 	// Open the directory
 	f, err := os.Open(dirName)
@@ -563,14 +642,39 @@ func ReadDir(dirName string) ([]FileInfo, error) {
 	return fileInfos, nil
 }
 
-func CacheReadFile(file string) (data []byte, err error) {
-	d, ok := CachedFiles.Get(file)
-	if ok == true {
-		return d, nil
+func cacheClearElement(file string) {
+	CachedFiles.Remove(file)
+	CachedFileNames.Remove(file)
+}
+
+func clearCacheForPath(prefix string) {
+	cfne := CachedFileNames.Items()
+	prefixLower := strings.ToLower(prefix)
+	for name := range cfne {
+		if strings.HasPrefix(strings.ToLower(name), prefixLower) {
+			cacheClearElement(name)
+		}
 	}
-	d, err = ReadFile(file)
+}
+
+// CacheReadFile reads the file and caches its content if not already cached for faster subsequent reads.
+func CacheReadFile(file string) (data []byte, err error) {
+	cfe, isok := CachedFileNames.Get(file)
+	if isok == true {
+		if cfe == true {
+			d, ok := CachedFiles.Get(file)
+			if ok == true {
+				return d, nil
+			}
+		}
+	}
+
+	d, err := ReadFile(file)
 	if err == nil {
+		CachedFileNames.Set(file, true)
 		CachedFiles.Set(file, d)
+	} else {
+		CachedFileNames.Set(file, false)
 	}
 	return d, err
 }
